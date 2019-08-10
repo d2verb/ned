@@ -1,27 +1,37 @@
 import termios
 import strformat
 import streams
+import strscans
+import strutils
 import posix
+import console
 
-const TIOCGWINSZ = 0x5413
-
-proc isCntrl(c: cint): cint {.header: "ctype.h", importc: "iscntrl".}
-proc ioctl[T](fd: cint, request: culong, argp: var T): cint {.importc, header: "<sys/ioctl.h>".}
+const NEDVERSION = "0.0.1"
 
 type
   NedError = object of Exception
+
   NedConfig = object
     orig_termios: Termios
+    cx: int
+    cy: int
     screenrows: int
     screencols: int
 
-  WinSize = object
-    row: cushort
-    col: cushort
-    xpixel: cushort
-    ypixel: cushort
+  NedKey = enum
+    nkArrowLeft = 1000
+    nkArrowRight
+    nkArrowUp
+    nkArrowDown
+    nkDelKey
+    nkHomeKey
+    nkEndKey
+    nkPageUp
+    nkPageDown
 
 var E: NedConfig
+
+proc isCntrl(c: cint): cint {.header: "ctype.h", importc: "iscntrl".}
 
 proc ctrlKey(c: char): char =
   var cc = c.int
@@ -71,46 +81,139 @@ proc enableRawMode() =
   if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, raw.addr) == -1:
     raise newException(NedError, "tcsetattr() failed")
 
-proc nedReadKey(): char =
+proc nedReadKey(): int =
   var c = '\0'
+
   try:
     stdin.newFileStream.read(c)
   except IOError:
     discard
-  result = c
 
-proc getWindowSize(): tuple[width: int, height: int] =
-  var ws: WinSize
-  if stdout.getFileHandle.ioctl(TIOCGWINSZ, ws.addr) == -1 or ws.col == 0:
-    raise newException(NedError, "getWindowSize() failed")
+  if c != ESC:
+    return c.int
+
+  var c1, c2, c3: char
+  if stdin.newFileStream.readData(c1.addr, 1) != 1:
+    return ESC.int
+  if stdin.newFileStream.readData(c2.addr, 1) != 1:
+    return ESC.int
+
+  if c1 == 'O':
+    case c2:
+      of 'H': return nkHomeKey.int
+      of 'F': return nkEndKey.int
+      else: discard
+  elif c1 == '[':
+    if c2.isDigit:
+      if stdin.newFileStream.readData(c3.addr, 1) != 1:
+        return ESC.int
+
+      if c3 == '~':
+        case c2:
+          of '1': return nkHomeKey.int
+          of '3': return nkDelKey.int
+          of '4': return nkEndKey.int
+          of '5': return nkPageUp.int
+          of '6': return nkPageDown.int
+          of '7': return nkHomeKey.int
+          of '8': return nkEndKey.int
+          else: discard
+    else:
+      case c2:
+        of 'A': return nkArrowUp.int
+        of 'B': return nkArrowDown.int
+        of 'C': return nkArrowRight.int
+        of 'D': return nkArrowLeft.int
+        of 'H': return nkHomeKey.int
+        of 'F': return nkEndKey.int
+        else: discard
   else:
-    result = (ws.col.int, ws.row.int)
+    return ESC.int
+
+proc nedMoveCursor(key: int) =
+  case key:
+    of nkArrowLeft.int:
+      if E.cx != 0:
+        E.cx.dec
+    of nkArrowRight.int:
+      if E.cx != E.screencols - 1:
+        E.cx.inc
+    of nkArrowUp.int:
+      if E.cy != 0:
+        E.cy.dec
+    of nkArrowDown.int:
+      if E.cy != E.screenrows - 1:
+        E.cy.inc
+    else:
+      discard
 
 proc nedProcessKeypress() =
   var c = nedReadKey()
   case c:
-    of ctrlKey('q'):
+    of ctrlKey('q').int:
       quit()
+
+    of nkPageUp.int, nkPageDown.int:
+      for i in 0..<E.screenrows:
+        if c == nkPageUp.int:
+          nkArrowUp.int.nedMoveCursor
+        else:
+          nkArrowDown.int.nedMoveCursor
+
+    of nkHomeKey.int:
+      E.cx = 0
+    of nkEndKey.int:
+      E.cx = E.screencols - 1
+
+    of nkArrowUp.int, nkArrowDown.int, nkArrowLeft.int, nkArrowRight.int:
+      c.nedMoveCursor
     else:
       discard
 
 proc nedClearScreen() {.noconv.} =
-  # Clear screen
-  stdout.write("\x1b[2J")
-  # Reposition the cursor
-  stdout.write("\x1b[H")
+  clearScreen()
+  resetCursorPos()
 
-proc nedDrawRows() =
+proc nedDrawRows(ab: Stream) =
   for y in 0..<E.screenrows:
-    stdout.write(&"~\r\n")
+    if y == E.screenrows div 3:
+      let welcome = fmt"Ned editor -- version {NEDVERSION}"
+      var welcomelen = welcome.len
+      if welcome.len > E.screencols:
+        welcomelen = E.screencols
+      var padding = (E.screencols - welcomelen) div 2
+      if padding != 0:
+        ab.write("~")
+      while padding != 0:
+        ab.write(" ")
+        padding.dec
+      ab.write(welcome[0..<welcomelen])
+    else:
+      ab.write("~")
+
+    ab.clearLine()
+    if y < E.screenrows - 1:
+      ab.write("\r\n")
 
 proc nedRefreshScreen() =
-  nedClearScreen()
-  nedDrawRows()
-  stdout.write("\x1b[H")
+  var ab = newStringStream("")
+
+  ab.hideCursor()
+  ab.resetCursorPos()
+  ab.nedDrawRows()
+  ab.setCursorPos(E.cx + 1, E.cy + 1)
+  ab.showCursor()
+
+  ab.setPosition(0)
+  stdout.write(ab.readAll())
 
 proc nedInit() =
-  (E.screenrows, E.screencols) = getWindowSize()
+  E.cx = 0
+  E.cy = 0
+
+  let (rows, cols) = getWindowSize()
+  E.screenrows = rows
+  E.screencols = cols
 
 proc main() =
   enableRawMode()

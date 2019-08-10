@@ -12,3 +12,7 @@ bin           = @["ned"]
 # Dependencies
 
 requires "nim >= 0.20.9"
+
+# Tasks
+task clean, "Remove all artifacts":
+  exec "rm -f ned"
