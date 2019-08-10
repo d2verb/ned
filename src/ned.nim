@@ -3,10 +3,12 @@ import strformat
 import streams
 import strscans
 import strutils
+import sequtils
 import posix
 import console
 import system
 import os
+import times
 
 const NEDVERSION = "0.0.1"
 
@@ -23,8 +25,12 @@ type
     rowoff: int
     coloff: int
     filename: string
+    statusmsg: string
+    statusmsg_time: int64
+    dirty: int
 
   NedKey = enum
+    nkBackSpace = 127
     nkArrowLeft = 1000
     nkArrowRight
     nkArrowUp
@@ -160,9 +166,60 @@ proc nedMoveCursor(key: int) =
   if E.cx > rowlen:
     E.cx = rowlen
 
+proc nedInsertChar(c: int) =
+  if E.cy == E.rows.len:
+    E.rows.add("")
+
+  E.rows[E.cy].insert($c.char, E.cx)
+  E.cx.inc
+
+proc nedInsertNewLine() =
+  if E.cy == E.rows.len:
+    E.rows.add("")
+
+  let rowlen = E.rows[E.cy].len
+  let newLineContent = E.rows[E.cy][E.cx..<rowlen]
+
+  if rowlen - 1 >= E.cx:
+    E.rows[E.cy].delete(E.cx, rowlen - 1)
+  E.rows.insert(@[newLineContent], E.cy + 1)
+
+  E.cy.inc
+  E.cx = 0
+
+proc nedDelRow(at: int) =
+  if at < 0 or at >= E.rows.len:
+    return
+
+  let
+    rowlen = E.rows[at].len
+    remainedContent = E.rows[at][E.cx..<rowlen]
+
+  E.rows[at - 1] = E.rows[at - 1] & remainedContent
+  E.rows.delete(at, at)
+
+  # Update cursor pos
+  E.cy.dec
+  E.cx = E.rows[E.cy].len - remainedContent.len
+
+  E.dirty.inc
+
+proc nedDelChar() =
+  if E.cy == E.rows.len: return
+  if E.cx == 0 and E.cy == 0: return
+
+  if E.cx > 0:
+    E.rows[E.cy].delete(E.cx - 1, E.cx - 1)
+    E.cx.dec
+  else:
+    nedDelRow(E.cy)
+
 proc nedProcessKeypress() =
   var c = nedReadKey()
   case c:
+    of '\r'.int:
+      nedInsertNewLine()
+
     of ctrlKey('q').int:
       quit()
 
@@ -184,10 +241,21 @@ proc nedProcessKeypress() =
       if E.cy < E.rows.len:
         E.cx = E.rows[E.cy].len
 
-    of nkArrowUp.int, nkArrowDown.int, nkArrowLeft.int, nkArrowRight.int:
-      c.nedMoveCursor
-    else:
+    of nkBackSpace.int, ctrlKey('h').int, nkDelKey.int:
+      if c == nkDelKey.int: nkArrowRight.int.nedMoveCursor()
+      nedDelChar()
+
+    of ctrlKey('l').int, ESC.int:
       discard
+
+    of nkArrowUp.int, nkArrowDown.int, nkArrowLeft.int, nkArrowRight.int:
+      c.nedMoveCursor()
+
+    of 0:
+      discard
+
+    else:
+      c.nedInsertChar()
 
 proc nedClearScreen() {.noconv.} =
   clearScreen()
@@ -237,30 +305,28 @@ proc nedDrawRows(ab: Stream) =
 proc nedDrawStatusBar(ab: Stream) =
   ab.enableSGRReverseVideo()
 
-  var
-    status: string
-    rstatus: string
-
-  if E.filename.len == 0:
-    status = &"[No Name] - {E.rows.len} lines"
-  else:
+  let
     status = &"{E.filename} - {E.rows.len} lines"
+    rstatus = &"{E.cy + 1}/{E.rows.len}"
+    ln = min(E.screencols, status.len)
 
-  rstatus = &"{E.cy + 1}/{E.rows.len}"
+  ab.write(status[0..<ln])
 
-  var
-    l = min(E.screencols, status.len)
-    rl = rstatus.len
-
-  ab.write(status[0..<l])
-
-  for i in l..<E.screencols:
-    if E.screencols - i == rl:
+  for i in ln..<E.screencols:
+    if E.screencols - i == rstatus.len:
       ab.write(rstatus)
       break
     else:
       ab.write(" ")
+
   ab.resetSGR()
+  ab.write("\r\n")
+
+proc nedDrawMessageBar(ab: Stream) =
+  ab.clearLine()
+  let msglen = min(E.screencols, E.statusmsg.len)
+  if msglen > 0 and (getTime().toUnix() - E.statusmsg_time < 5):
+    ab.write(E.statusmsg[0..<msglen])
 
 proc nedRefreshScreen() =
   nedScroll()
@@ -272,12 +338,17 @@ proc nedRefreshScreen() =
 
   ab.nedDrawRows()
   ab.nedDrawStatusBar()
+  ab.nedDrawMessageBar()
 
   ab.setCursorPos(E.cx - E.coloff + 1, E.cy - E.rowoff + 1)
   ab.showCursor()
 
   ab.setPosition(0)
   stdout.write(ab.readAll())
+
+proc nedSetStatusMessage(msg: string) =
+  E.statusmsg = msg
+  E.statusmsg_time = getTime().toUnix()
 
 proc nedOpen(filename: string) =
   var f: File = open(filename, FileMode.fmRead)
@@ -294,12 +365,14 @@ proc nedInit() =
   E.cy = 0
   E.rowoff = 0
   E.coloff = 0
+  E.statusmsg_time = 0
+  E.filename = "[NO NAME]"
 
   let (rows, cols) = getWindowSize()
   E.screenrows = rows
   E.screencols = cols
 
-  E.screenrows.dec
+  E.screenrows -= 2
 
 proc main() =
   enableRawMode()
@@ -308,6 +381,8 @@ proc main() =
 
   if paramCount() >= 1:
     nedOpen(os.commandLineParams()[0])
+
+  nedSetStatusMessage("HELP: Ctrl-Q = quit")
 
   while true:
     nedRefreshScreen()
