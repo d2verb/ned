@@ -113,3 +113,11 @@ proc getWindowSize*(): tuple[rows: int, cols: int] =
     result = getCursorPos()
   else:
     result = (ws.row.int, ws.col.int)
+
+proc enableSGRReverseVideo*(s: Stream) =
+  let output = &"{ESC}[7m"
+  s.write(output)
+
+proc resetSGR*(s: Stream) =
+  let output = &"{ESC}[m"
+  s.write(output)

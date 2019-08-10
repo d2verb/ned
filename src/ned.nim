@@ -5,6 +5,8 @@ import strscans
 import strutils
 import posix
 import console
+import system
+import os
 
 const NEDVERSION = "0.0.1"
 
@@ -17,6 +19,10 @@ type
     cy: int
     screenrows: int
     screencols: int
+    rows: seq[string]
+    rowoff: int
+    coloff: int
+    filename: string
 
   NedKey = enum
     nkArrowLeft = 1000
@@ -136,16 +142,23 @@ proc nedMoveCursor(key: int) =
       if E.cx != 0:
         E.cx.dec
     of nkArrowRight.int:
-      if E.cx != E.screencols - 1:
+      if E.cy < E.rows.len and E.cx < E.rows[E.cy].len:
         E.cx.inc
     of nkArrowUp.int:
       if E.cy != 0:
         E.cy.dec
     of nkArrowDown.int:
-      if E.cy != E.screenrows - 1:
+      if E.cy < E.rows.len:
         E.cy.inc
     else:
       discard
+
+  var rowlen = 0
+  if E.cy < E.rows.len:
+    rowlen = E.rows[E.cy].len
+
+  if E.cx > rowlen:
+    E.cx = rowlen
 
 proc nedProcessKeypress() =
   var c = nedReadKey()
@@ -154,6 +167,11 @@ proc nedProcessKeypress() =
       quit()
 
     of nkPageUp.int, nkPageDown.int:
+      if c == nkPageUp.int:
+        E.cy = E.rowoff
+      elif c == nkPageDown.int:
+        E.cy = min(E.rowoff + E.screenrows - 1, E.rows.len)
+
       for i in 0..<E.screenrows:
         if c == nkPageUp.int:
           nkArrowUp.int.nedMoveCursor
@@ -163,7 +181,8 @@ proc nedProcessKeypress() =
     of nkHomeKey.int:
       E.cx = 0
     of nkEndKey.int:
-      E.cx = E.screencols - 1
+      if E.cy < E.rows.len:
+        E.cx = E.rows[E.cy].len
 
     of nkArrowUp.int, nkArrowDown.int, nkArrowLeft.int, nkArrowRight.int:
       c.nedMoveCursor
@@ -174,51 +193,121 @@ proc nedClearScreen() {.noconv.} =
   clearScreen()
   resetCursorPos()
 
+proc nedDrawWelcome(ab: Stream) =
+  let welcome = fmt"Ned editor -- version {NEDVERSION}"
+
+  var
+    welcomelen = min(welcome.len, E.screencols)
+    padding = (E.screencols - welcomelen) div 2
+
+  if padding != 0:
+    ab.write("~")
+
+  while padding != 0:
+    ab.write(" ")
+    padding.dec
+
+  ab.write(welcome[0..<welcomelen])
+
+proc nedScroll() =
+  if E.cy < E.rowoff:
+    E.rowoff = E.cy
+  if E.cy >= E.rowoff + E.screenrows:
+    E.rowoff = E.cy - E.screenrows + 1
+  if E.cx < E.coloff:
+    E.coloff = E.cx
+  if E.cx >= E.coloff + E.screencols:
+    E.coloff = E.cx - E.screencols + 1
+
 proc nedDrawRows(ab: Stream) =
   for y in 0..<E.screenrows:
-    if y == E.screenrows div 3:
-      let welcome = fmt"Ned editor -- version {NEDVERSION}"
-      var welcomelen = welcome.len
-      if welcome.len > E.screencols:
-        welcomelen = E.screencols
-      var padding = (E.screencols - welcomelen) div 2
-      if padding != 0:
+    let filerow = y + E.rowoff
+    if filerow >= E.rows.len:
+      if E.rows.len == 0 and y == E.screenrows div 3:
+        ab.nedDrawWelcome()
+      else:
         ab.write("~")
-      while padding != 0:
-        ab.write(" ")
-        padding.dec
-      ab.write(welcome[0..<welcomelen])
     else:
-      ab.write("~")
+      var l = min(E.screencols, max(E.rows[filerow].len - E.coloff, 0))
+      ab.write(E.rows[filerow][E.coloff..<(E.coloff + l)])
 
     ab.clearLine()
-    if y < E.screenrows - 1:
-      ab.write("\r\n")
+    ab.write("\r\n")
+
+proc nedDrawStatusBar(ab: Stream) =
+  ab.enableSGRReverseVideo()
+
+  var
+    status: string
+    rstatus: string
+
+  if E.filename.len == 0:
+    status = &"[No Name] - {E.rows.len} lines"
+  else:
+    status = &"{E.filename} - {E.rows.len} lines"
+
+  rstatus = &"{E.cy + 1}/{E.rows.len}"
+
+  var
+    l = min(E.screencols, status.len)
+    rl = rstatus.len
+
+  ab.write(status[0..<l])
+
+  for i in l..<E.screencols:
+    if E.screencols - i == rl:
+      ab.write(rstatus)
+      break
+    else:
+      ab.write(" ")
+  ab.resetSGR()
 
 proc nedRefreshScreen() =
+  nedScroll()
+
   var ab = newStringStream("")
 
   ab.hideCursor()
   ab.resetCursorPos()
+
   ab.nedDrawRows()
-  ab.setCursorPos(E.cx + 1, E.cy + 1)
+  ab.nedDrawStatusBar()
+
+  ab.setCursorPos(E.cx - E.coloff + 1, E.cy - E.rowoff + 1)
   ab.showCursor()
 
   ab.setPosition(0)
   stdout.write(ab.readAll())
 
+proc nedOpen(filename: string) =
+  var f: File = open(filename, FileMode.fmRead)
+  defer:
+    f.close()
+
+  E.filename = filename
+
+  while f.endOfFile == false:
+    E.rows.add(f.readLine())
+
 proc nedInit() =
   E.cx = 0
   E.cy = 0
+  E.rowoff = 0
+  E.coloff = 0
 
   let (rows, cols) = getWindowSize()
   E.screenrows = rows
   E.screencols = cols
 
+  E.screenrows.dec
+
 proc main() =
   enableRawMode()
   addQuitProc(nedClearScreen)
   nedInit()
+
+  if paramCount() >= 1:
+    nedOpen(os.commandLineParams()[0])
 
   while true:
     nedRefreshScreen()
