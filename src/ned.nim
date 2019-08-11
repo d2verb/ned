@@ -150,7 +150,7 @@ proc nedPrompt(prompt: string, callback: proc(x: string, y: int) = nil): string 
     nedRefreshScreen()
 
     let c = nedReadKey()
-    if c == nkDelKey.int or c == ctrlKey('h').int or c == nkBackSpace.int:
+    if c == nkDelKey.int or c == nkBackSpace.int:
       if result.len > 0:
         result.delete(result.len - 1, result.len - 1)
     elif c == ESC.int:
@@ -246,20 +246,35 @@ proc nedProcessKeypress() =
     of ctrlKey('q').int:
       quit()
 
-    of nkPageUp.int, nkPageDown.int:
-      if c == nkPageUp.int:
+    of ctrlKey('w').int:
+      nedSave()
+
+    of ctrlKey('s').int:
+      nedFind()
+
+    of ctrlKey('h').int:
+      nkArrowLeft.int.nedMoveCursor
+
+    of ctrlKey('j').int:
+      nkArrowDown.int.nedMoveCursor
+
+    of ctrlKey('k').int:
+      nkArrowUp.int.nedMoveCursor
+
+    of ctrlKey('l').int:
+      nkArrowRight.int.nedMoveCursor
+
+    of nkPageUp.int, nkPageDown.int, ctrlKey('f').int, ctrlKey('b').int:
+      if c == nkPageUp.int or c == ctrlKey('b').int:
         E.cy = E.rowoff
-      elif c == nkPageDown.int:
+      elif c == nkPageDown.int or c == ctrlKey('f').int:
         E.cy = min(E.rowoff + E.screenrows - 1, max(E.rows.len - 1, 0))
 
       for i in 0..<E.screenrows:
-        if c == nkPageUp.int:
+        if c == nkPageUp.int or c == ctrlKey('b').int:
           nkArrowUp.int.nedMoveCursor
         else:
           nkArrowDown.int.nedMoveCursor
-
-    of ctrlKey('s').int:
-      nedSave()
 
     of nkHomeKey.int:
       E.cx = 0
@@ -268,20 +283,14 @@ proc nedProcessKeypress() =
       if E.cy < E.rows.len:
         E.cx = E.rows[E.cy].len
 
-    of ctrlKey('f').int:
-      nedFind()
-
-    of nkBackSpace.int, ctrlKey('h').int, nkDelKey.int:
+    of nkBackSpace.int, nkDelKey.int:
       if c == nkDelKey.int: nkArrowRight.int.nedMoveCursor()
       nedDelChar()
-
-    of ctrlKey('l').int, ESC.int:
-      discard
 
     of nkArrowUp.int, nkArrowDown.int, nkArrowLeft.int, nkArrowRight.int:
       c.nedMoveCursor()
 
-    of 0:
+    of 0, ESC.int:
       discard
 
     else:
