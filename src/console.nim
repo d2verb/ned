@@ -119,3 +119,10 @@ proc enableSGRReverseVideo*(s: Stream) =
 proc resetSGR*(s: Stream) =
   let output = &"{ESC}[m"
   s.write(output)
+
+proc setColor*(s: Stream, color: int) =
+  let output = &"{ESC}[{color}m"
+  s.write(output)
+
+proc setForegroundDefaultColor*(s: Stream) =
+  s.setColor(39)
