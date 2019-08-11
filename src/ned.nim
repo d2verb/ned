@@ -144,7 +144,7 @@ proc nedReadKey(): int =
   else:
     return ESC.int
 
-proc nedPrompt(prompt: string): string =
+proc nedPrompt(prompt: string, callback: proc(x: string, y: int) = nil): string =
   while true:
     nedSetStatusMessage(prompt & result)
     nedRefreshScreen()
@@ -155,13 +155,17 @@ proc nedPrompt(prompt: string): string =
         result.delete(result.len - 1, result.len - 1)
     elif c == ESC.int:
       nedSetStatusMessage("")
+      if callback != nil: callback(result, c)
       result = ""
       return
     elif c == '\r'.int:
       nedSetStatusMessage("")
+      if callback != nil: callback(result, c)
       return
     elif isCntrl(c.cint) == 0 and c < 128:
       result.add(c.char)
+
+    if callback != nil: callback(result, c)
 
 
 proc nedMoveCursor(key: int) =
@@ -263,6 +267,9 @@ proc nedProcessKeypress() =
     of nkEndKey.int:
       if E.cy < E.rows.len:
         E.cx = E.rows[E.cy].len
+
+    of ctrlKey('f').int:
+      nedFind()
 
     of nkBackSpace.int, ctrlKey('h').int, nkDelKey.int:
       if c == nkDelKey.int: nkArrowRight.int.nedMoveCursor()
@@ -397,7 +404,7 @@ proc nedOpen(filename: string) =
 
 proc nedSave() =
   if E.filename == "":
-    E.filename = nedPrompt("Save as: ")
+    E.filename = nedPrompt("Save as (ESC to cancel): ")
     if E.filename == "":
       nedSetStatusMessage("Save aborted")
       return
@@ -415,6 +422,32 @@ proc nedSave() =
       e = getCurrentException()
       msg = getCurrentExceptionMsg()
     nedSetStatusMessage(&"Can't save! " & e.repr & ": " & msg)
+
+proc nedFindCallback(query: string, key: int) =
+  if key == '\r'.int or key == ESC.int:
+    return
+
+  for i in 0..<E.rows.len:
+    let match = E.rows[i].find(query)
+    if match != -1:
+      E.cy = i
+      E.cx = match
+      E.rowoff = E.rows.len
+      break
+
+proc nedFind() =
+  let
+    saved_cx = E.cx
+    saved_cy = E.cy
+    saved_coloff = E.coloff
+    saved_rowoff = E.rowoff
+    query = nedPrompt("Search (ESC to cancel): ", nedFindCallback)
+
+  if query == "":
+    E.cx = saved_cx
+    E.cy = saved_cy
+    E.coloff = saved_coloff
+    E.rowoff = saved_rowoff
 
 proc nedInit() =
   E.cx = 0
@@ -438,7 +471,7 @@ proc main() =
   if paramCount() >= 1:
     nedOpen(os.commandLineParams()[0])
 
-  nedSetStatusMessage("HELP: Ctrl-s = save | Ctrl-Q = quit")
+  nedSetStatusMessage("HELP: Ctrl-s = save | Ctrl-Q = quit | Ctrl-f = find")
 
   while true:
     nedRefreshScreen()
