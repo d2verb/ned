@@ -480,7 +480,7 @@ proc main() =
   if paramCount() >= 1:
     nedOpen(os.commandLineParams()[0])
 
-  nedSetStatusMessage("HELP: Ctrl-s = save | Ctrl-Q = quit | Ctrl-f = find")
+  nedSetStatusMessage("HELP: Ctrl-W = save | Ctrl-Q = quit | Ctrl-S = search")
 
   while true:
     nedRefreshScreen()
