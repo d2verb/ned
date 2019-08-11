@@ -154,7 +154,7 @@ proc nedMoveCursor(key: int) =
       if E.cy != 0:
         E.cy.dec
     of nkArrowDown.int:
-      if E.cy < E.rows.len:
+      if E.cy + 1 < E.rows.len:
         E.cy.inc
     else:
       discard
@@ -174,11 +174,12 @@ proc nedInsertChar(c: int) =
   E.cx.inc
 
 proc nedInsertNewLine() =
-  if E.cy == E.rows.len:
+  if E.rows.len == 0:
     E.rows.add("")
 
-  let rowlen = E.rows[E.cy].len
-  let newLineContent = E.rows[E.cy][E.cx..<rowlen]
+  let
+    rowlen = E.rows[E.cy].len
+    newLineContent = E.rows[E.cy][E.cx..<rowlen]
 
   if rowlen - 1 >= E.cx:
     E.rows[E.cy].delete(E.cx, rowlen - 1)
@@ -191,17 +192,7 @@ proc nedDelRow(at: int) =
   if at < 0 or at >= E.rows.len:
     return
 
-  let
-    rowlen = E.rows[at].len
-    remainedContent = E.rows[at][E.cx..<rowlen]
-
-  E.rows[at - 1] = E.rows[at - 1] & remainedContent
   E.rows.delete(at, at)
-
-  # Update cursor pos
-  E.cy.dec
-  E.cx = E.rows[E.cy].len - remainedContent.len
-
   E.dirty.inc
 
 proc nedDelChar() =
@@ -212,7 +203,10 @@ proc nedDelChar() =
     E.rows[E.cy].delete(E.cx - 1, E.cx - 1)
     E.cx.dec
   else:
+    E.cx = E.rows[E.cy - 1].len
+    E.rows[E.cy - 1].add(E.rows[E.cy])
     nedDelRow(E.cy)
+    E.cy.dec
 
 proc nedProcessKeypress() =
   var c = nedReadKey()
@@ -227,7 +221,7 @@ proc nedProcessKeypress() =
       if c == nkPageUp.int:
         E.cy = E.rowoff
       elif c == nkPageDown.int:
-        E.cy = min(E.rowoff + E.screenrows - 1, E.rows.len)
+        E.cy = min(E.rowoff + E.screenrows - 1, max(E.rows.len - 1, 0))
 
       for i in 0..<E.screenrows:
         if c == nkPageUp.int:
