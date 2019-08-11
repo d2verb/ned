@@ -17,8 +17,6 @@ type
     xpixel: cushort
     ypixel: cushort
 
-proc ioctl[T](fd: cint, request: culong, argp: var T): cint {.importc, header: "<sys/ioctl.h>".}
-
 proc clearScreen*() =
   let output = &"{ESC}[2J"
   if stdout.writeChars(output, 0, output.len) != output.len:

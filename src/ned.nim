@@ -1,3 +1,5 @@
+{.experimental: "codeReordering".}
+
 import termios
 import strformat
 import streams
@@ -27,7 +29,7 @@ type
     filename: string
     statusmsg: string
     statusmsg_time: int64
-    dirty: int
+    dirty: bool
 
   NedKey = enum
     nkBackSpace = 127
@@ -142,6 +144,26 @@ proc nedReadKey(): int =
   else:
     return ESC.int
 
+proc nedPrompt(prompt: string): string =
+  while true:
+    nedSetStatusMessage(prompt & result)
+    nedRefreshScreen()
+
+    let c = nedReadKey()
+    if c == nkDelKey.int or c == ctrlKey('h').int or c == nkBackSpace.int:
+      if result.len > 0:
+        result.delete(result.len - 1, result.len - 1)
+    elif c == ESC.int:
+      nedSetStatusMessage("")
+      result = ""
+      return
+    elif c == '\r'.int:
+      nedSetStatusMessage("")
+      return
+    elif isCntrl(c.cint) == 0 and c < 128:
+      result.add(c.char)
+
+
 proc nedMoveCursor(key: int) =
   case key:
     of nkArrowLeft.int:
@@ -172,6 +194,7 @@ proc nedInsertChar(c: int) =
 
   E.rows[E.cy].insert($c.char, E.cx)
   E.cx.inc
+  E.dirty = true
 
 proc nedInsertNewLine() =
   if E.rows.len == 0:
@@ -187,13 +210,14 @@ proc nedInsertNewLine() =
 
   E.cy.inc
   E.cx = 0
+  E.dirty = true
 
 proc nedDelRow(at: int) =
   if at < 0 or at >= E.rows.len:
     return
 
   E.rows.delete(at, at)
-  E.dirty.inc
+  E.dirty = true
 
 proc nedDelChar() =
   if E.cy == E.rows.len: return
@@ -202,6 +226,7 @@ proc nedDelChar() =
   if E.cx > 0:
     E.rows[E.cy].delete(E.cx - 1, E.cx - 1)
     E.cx.dec
+    E.dirty = true
   else:
     E.cx = E.rows[E.cy - 1].len
     E.rows[E.cy - 1].add(E.rows[E.cy])
@@ -229,8 +254,12 @@ proc nedProcessKeypress() =
         else:
           nkArrowDown.int.nedMoveCursor
 
+    of ctrlKey('s').int:
+      nedSave()
+
     of nkHomeKey.int:
       E.cx = 0
+
     of nkEndKey.int:
       if E.cy < E.rows.len:
         E.cx = E.rows[E.cy].len
@@ -299,8 +328,16 @@ proc nedDrawRows(ab: Stream) =
 proc nedDrawStatusBar(ab: Stream) =
   ab.enableSGRReverseVideo()
 
+  var filename = E.filename
+  if filename == "":
+    filename = "[NO NAME]"
+
+  var modified = ""
+  if E.dirty:
+    modified = "(modified)"
+
   let
-    status = &"{E.filename} - {E.rows.len} lines"
+    status = &"{filename} - {E.rows.len} lines {modified}"
     rstatus = &"{E.cy + 1}/{E.rows.len}"
     ln = min(E.screencols, status.len)
 
@@ -345,14 +382,39 @@ proc nedSetStatusMessage(msg: string) =
   E.statusmsg_time = getTime().toUnix()
 
 proc nedOpen(filename: string) =
-  var f: File = open(filename, FileMode.fmRead)
-  defer:
-    f.close()
-
   E.filename = filename
 
-  while f.endOfFile == false:
-    E.rows.add(f.readLine())
+  try:
+    var f = open(filename, fmRead)
+    defer:
+      f.close()
+
+    while f.endOfFile == false:
+      E.rows.add(f.readLine())
+  except IOError:
+    # Do nothing if we failed to open file
+    discard
+
+proc nedSave() =
+  if E.filename == "":
+    E.filename = nedPrompt("Save as: ")
+    if E.filename == "":
+      nedSetStatusMessage("Save aborted")
+      return
+
+  try:
+    var f = open(E.filename, fmReadWrite)
+    defer:
+      f.close()
+
+    let output = E.rows.join("\n")
+    f.write(output)
+    nedSetStatusMessage(&"{output.len} bytes written to disk")
+  except:
+    let
+      e = getCurrentException()
+      msg = getCurrentExceptionMsg()
+    nedSetStatusMessage(&"Can't save! " & e.repr & ": " & msg)
 
 proc nedInit() =
   E.cx = 0
@@ -360,7 +422,7 @@ proc nedInit() =
   E.rowoff = 0
   E.coloff = 0
   E.statusmsg_time = 0
-  E.filename = "[NO NAME]"
+  E.dirty = false
 
   let (rows, cols) = getWindowSize()
   E.screenrows = rows
@@ -376,7 +438,7 @@ proc main() =
   if paramCount() >= 1:
     nedOpen(os.commandLineParams()[0])
 
-  nedSetStatusMessage("HELP: Ctrl-Q = quit")
+  nedSetStatusMessage("HELP: Ctrl-s = save | Ctrl-Q = quit")
 
   while true:
     nedRefreshScreen()
