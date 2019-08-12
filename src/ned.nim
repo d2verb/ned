@@ -7,98 +7,21 @@ import strscans
 import strutils
 import sequtils
 import posix
-import console
 import system
 import os
 import times
 import algorithm
 
+import console
+import common
+import syntax
+import rowops
+
 const
   NEDVERSION = "0.0.1"
-  NEDTABSTOP = 4
-
-  HL_NUMBERS = (1 shl 0)
-  HL_STRINGS = (1 shl 1)
-
-type
-  NedError = object of Exception
-
-  NedSyntax = ref object
-    filetype: string
-    filematch: seq[string]
-    keywords: seq[string]
-    flags: int
-    sline_comment_prefix: string
-
-  NedRow = ref object
-    raw: string
-    render: string
-    hl: seq[uint8]
-
-  NedConfig = object
-    orig_termios: Termios
-    rx: int
-    cx: int
-    cy: int
-    screenrows: int
-    screencols: int
-    rows: seq[NedRow]
-    rowoff: int
-    coloff: int
-    filename: string
-    statusmsg: string
-    statusmsg_time: int64
-    dirty: bool
-    saved_hl_line: int
-    saved_hl: seq[uint8]
-    syntax: NedSyntax
-
-  NedKey = enum
-    nkBackSpace = 127
-    nkArrowLeft = 1000
-    nkArrowRight
-    nkArrowUp
-    nkArrowDown
-    nkDelKey
-    nkHomeKey
-    nkEndKey
-    nkPageUp
-    nkPageDown
-
-  NedHighlight = enum
-    nhNormal = 0
-    nhComment
-    nhKeyword1
-    nhKeyword2
-    nhString
-    nhNumber
-    nhMatch
 
 var
   E: NedConfig
-  HLDB = @[
-    NedSyntax(filetype: "c",
-              filematch: @[".c", ".h", ".cpp"],
-              keywords: @["switch", "if", "while", "for", "break", "continue", "return", "else",
-                          "struct", "union", "typedef", "static", "enum", "class", "case",
-                          "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-                          "void|"],
-              flags: HL_NUMBERS or HL_STRINGS,
-              sline_comment_prefix: "//"),
-    NedSyntax(filetype: "nim",
-              filematch: @[".nim"],
-              keywords: @["addr", "and", "asm", "bind", "block", "break", "case", "cast",
-                          "concept", "const", "continue", "converter", "defer", "discard", "distinct",
-                          "div", "do", "elif", "else", "end", "enum", "except", "export",
-                          "finally", "for", "from", "func", "if", "import", "in", "include", "interface", "is",
-                          "isnot", "iterator", "let", "macro", "method", "mixin", "mod", "nil", "not", "notin",
-                          "object", "of", "or", "out", "proc", "ptr", "raise", "ref", "return", "shl", "shr", "static",
-                          "template", "try", "tuple", "type", "using", "var", "when", "while", "xor", "yield",
-                          "int8|", "int16|", "int32|", "int64|", "uint8|", "uint|16", "uint32|", "uint64|", "int|", "uint|",
-                          "float32|", "float64|", "float|", "bool|", "char|", "string|", "cstring|"],
-              flags: HL_NUMBERS or HL_STRINGS,
-              sline_comment_prefix: "#"),
-  ]
 
 proc isCntrl(c: cint): cint {.header: "ctype.h", importc: "iscntrl".}
 
@@ -106,49 +29,6 @@ proc ctrlKey(c: char): char =
   var cc = c.int
   cc = cc and 0x1f
   result = cc.char
-
-proc disableRawMode() {.noconv.} =
-  if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, E.orig_termios.addr) == -1:
-    raise newException(NedError, "tcsetattr() failed")
-
-proc enableRawMode() =
-  if stdin.getFileHandle.tcGetAttr(E.orig_termios.addr) == -1:
-    raise newException(NedError, "tcgetattr() failed")
-
-  addQuitProc(disableRawMode)
-
-  var raw = E.orig_termios
-
-  # Note: BRKINT, INPCK, ISTRIP, CS8 are set for a traditional reason
-
-  # Disable:
-  #   Ctrl-S
-  #   Ctrl-Q
-  # Fix:
-  #   let Ctrl-M to produce (13, '\r') not (10, '\n')
-  raw.c_iflag = raw.c_iflag and (not (BRKINT or ICRNL or INPCK or ISTRIP or IXON))
-
-  # Disable:
-  #   "\n" to "\r\n" translation
-  raw.c_oflag = raw.c_oflag and (not (OPOST))
-
-  # Set: char size to 8 bits per byte
-  raw.c_cflag = raw.c_cflag or CS8
-
-  # Disable:
-  #   echo
-  #   canonical mode
-  #   Ctrl-C
-  #   Ctrl-Z
-  #   Ctrl-V
-  raw.c_lflag = raw.c_lflag and (not (ECHO or ICANON or IEXTEN or ISIG))
-
-  # Set time out for preventing read() from blocking
-  raw.c_cc[VMIN] = 0.cuchar
-  raw.c_cc[VTIME] = 1.cuchar
-
-  if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, raw.addr) == -1:
-    raise newException(NedError, "tcsetattr() failed")
 
 proc nedReadKey(): int =
   var c = '\0'
@@ -431,160 +311,18 @@ proc nedSetStatusMessage(msg: string) =
   E.statusmsg = msg
   E.statusmsg_time = getTime().toUnix()
 
-# *** syntax highlighting ***
-proc is_separator(c: char): bool =
-  result = c.isSpaceAscii()
-  result = result or (c == '\0')
-  result = result or (c in ",.()+-/*=~%<>[];")
+proc nedUpdateSyntax(rows: var seq[NedRow], syntax: var NedSyntax) =
+  for i in 0..<E.rows.len:
+    rows[i].nedUpdateSyntax(syntax)
 
-proc nedUpdateSyntax(row: var NedRow) =
-  row.hl = newSeqWith(row.render.len, nhNormal.uint8)
-
-  if E.syntax == nil:
-    return
-
-  let
-    scs = E.syntax.sline_comment_prefix
-    keywords = E.syntax.keywords
-
-  var
-    i = 0
-    prev_is_sep = true
-    in_string = '\0' # `\0` or `"` or `'`
-
-  while i < row.render.len:
-    let c = row.render[i]
-    var prev_hl = nhNormal.uint8
-    if i > 0:
-      prev_hl = row.hl[i - 1]
-
-    if scs.len > 0 and in_string == '\0':
-      if i + scs.len <= row.render.len and row.render[i..<(i+scs.len)] == scs:
-        row.hl.fill(i, row.hl.len - 1, nhComment.uint8)
-        break
-
-    if (E.syntax.flags and HL_STRINGS) != 0:
-      if in_string != '\0':
-        row.hl[i] = nhString.uint8
-        if c == '\\' and i + 1 < row.render.len:
-          row.hl[i+1] = nhString.uint8
-          i += 2
-          continue
-
-        if c == in_string:
-          in_string = '\0'
-
-        i.inc
-        prev_is_sep = true
-        continue
-      elif c == '"' or c == '\'':
-        in_string = c
-        row.hl[i] = nhString.uint8
-        i.inc
-        continue
-
-
-    if (E.syntax.flags and HL_NUMBERS) != 0:
-      if (c.isDigit() and (prev_is_sep or prev_hl == nhNumber.uint8)) or
-         (c == '.' and prev_hl == nhNumber.uint8):
-        row.hl[i] = nhNumber.uint8
-        i.inc
-        prev_is_sep = false
-        continue
-
-    if prev_is_sep:
-      var kwfound = false
-      for keyword in keywords:
-        var
-          kwlen = keyword.len
-          kwcolor = nhKeyword1
-
-        if keyword[kwlen-1] == '|':
-          kwlen.dec
-          kwcolor = nhKeyword2
-
-        if i + kwlen <= row.render.len and row.render[i..<(i + kwlen)] == keyword[0..<kwlen]:
-          var is_sep = false
-          if i + kwlen < row.render.len and is_separator(row.render[i + kwlen]):
-            is_sep = true
-          elif i + kwlen >= row.render.len:
-            is_sep = true
-
-          if is_sep:
-            kwfound = true
-            row.hl.fill(i, i + kwlen - 1, kwcolor.uint8)
-            i = i + kwlen
-            break
-
-      if kwfound:
-        prev_is_sep = false
-        continue
-
-
-    prev_is_sep = c.is_separator()
-    i.inc
-
-proc nedSyntaxToColor(hl: uint8): int =
-  case hl:
-    of nhComment.uint8: return 36
-    of nhKeyword1.uint8: return 33
-    of nhKeyword2.uint8: return 32
-    of nhString.uint8: return 35
-    of nhNumber.uint8: return 31
-    of nhMatch.uint8: return 34
-    else: return 37
-
-proc nedSelectSyntax() =
-  E.syntax = nil
-  if E.filename == "":
-    return
-
-  for j in 0..<HLDB.len:
-    for i in 0..<HLDB[j].filematch.len:
-      if not E.filename.endsWith(HLDB[j].filematch[i]):
-        continue
-
-      for k in 0..<E.rows.len:
-        E.rows[k].nedUpdateSyntax()
-
-      E.syntax = HLDB[j]
-      return
-
-# *** row operations ***
-proc nedRowCxToRx(row: var NedRow, cx: int): int =
-  result = 0
-  for j in 0..<cx:
-    if row.raw[j] == '\t':
-      result += (NEDTABSTOP - 1) - (result mod NEDTABSTOP)
-    result.inc
-
-proc nedRowRxToCx(row: var NedRow, rx: int): int =
-  result = 0
-  for cx in 0..<row.raw.len:
-    if row.raw[cx] == '\t':
-      result += (NEDTABSTOP - 1) - (result mod NEDTABSTOP)
-    result.inc
-    if result > rx:
-      return cx
-
-proc nedUpdateRow(row: var NedRow) =
-  row.render = ""
-  for j in 0..<row.raw.len:
-    let c = row.raw[j]
-    if c == '\t':
-      row.render.add(' ')
-      while row.render.len mod NEDTABSTOP != 0:
-        row.render.add(' ')
-    else:
-      row.render.add(row.raw[j])
-  row.nedUpdateSyntax()
-
+# *** editor operations ***
 proc nedInsertRow(s: string, at: int) =
   if at < 0 or at > E.rows.len:
     return
 
   E.rows.insert(@[NedRow(raw: s, render: "")], at)
-  E.rows[at].nedUpdateRow()
+  E.rows[at].nedRowUpdate()
+  E.rows[at].nedUpdateSyntax(E.syntax)
 
   E.dirty = true
 
@@ -594,31 +332,12 @@ proc nedDelRow(at: int) =
   E.rows.delete(at, at)
   E.dirty = true
 
-proc nedRowInsertChar(row: var NedRow, at: int, c: char) =
-  var nat = at
-  if at < 0 or at > row.raw.len:
-    nat = row.raw.len
-  row.raw.insert($c, nat)
-  row.nedUpdateRow()
-  E.dirty = true
-
-proc nedRowAppendString(row: var NedRow, s: string) =
-  row.raw.add(s)
-  row.nedUpdateRow()
-  E.dirty = true
-
-proc nedRowDelChar(row: var NedRow, at: int) =
-  if at < 0 or at >= row.raw.len:
-    return
-  row.raw.delete(at, at)
-  row.nedUpdateRow()
-  E.dirty = true
-
-# *** editor operations ***
 proc nedInsertChar(c: char) =
   if E.cy == E.rows.len:
     nedInsertRow("", E.rows.len)
   E.rows[E.cy].nedRowInsertChar(E.cx, c)
+  E.rows[E.cy].nedUpdateSyntax(E.syntax)
+  E.dirty = true
   E.cx.inc
 
 proc nedInsertNewline() =
@@ -628,7 +347,8 @@ proc nedInsertNewline() =
     let rowlen = E.rows[E.cy].raw.len
     nedInsertRow(E.rows[E.cy].raw[E.cx..<rowlen], E.cy + 1)
     E.rows[E.cy].raw.delete(E.cx, rowlen - 1)
-    E.rows[E.cy].nedUpdateRow()
+    E.rows[E.cy].nedRowUpdate()
+    E.rows[E.cy].nedUpdateSyntax(E.syntax)
   E.cy.inc
   E.cx = 0
 
@@ -640,10 +360,14 @@ proc nedDelChar() =
 
   if E.cx > 0:
     E.rows[E.cy].nedRowDelChar(E.cx - 1)
+    E.rows[E.cy].nedUpdateSyntax(E.syntax)
+    E.dirty = true
     E.cx.dec
   else:
     E.cx = E.rows[E.cy - 1].raw.len
     E.rows[E.cy - 1].nedRowAppendString(E.rows[E.cy].raw)
+    E.rows[E.cy - 1].nedUpdateSyntax(E.syntax)
+    E.dirty = true
     nedDelRow(E.cy)
     E.cy.dec
 
@@ -657,8 +381,7 @@ proc nedRowsToString(): string =
 
 proc nedOpen(filename: string) =
   E.filename = filename
-
-  nedSelectSyntax()
+  E.syntax = filename.nedSelectSyntax()
 
   try:
     var f = open(filename, fmRead)
@@ -670,6 +393,8 @@ proc nedOpen(filename: string) =
   except IOError:
     # Do nothing if we failed to open file
     discard
+    
+  E.rows.nedUpdateSyntax(E.syntax)
 
 proc nedSave() =
   if E.filename == "":
@@ -677,7 +402,8 @@ proc nedSave() =
     if E.filename == "":
       nedSetStatusMessage("Save aborted")
       return
-    nedSelectSyntax()
+    E.syntax = E.filename.nedSelectSyntax()
+    E.rows.nedUpdateSyntax(E.syntax)
 
   try:
     var f = open(E.filename, fmReadWrite)

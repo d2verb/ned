@@ -3,6 +3,9 @@ import streams
 import strutils
 import strscans
 import posix
+import termios
+
+import common
 
 const
   TIOCGWINSZ = 0x5413
@@ -126,3 +129,48 @@ proc setColor*(s: Stream, color: int) =
 
 proc setForegroundDefaultColor*(s: Stream) =
   s.setColor(39)
+
+var orig_termios: Termios
+
+proc disableRawMode*() {.noconv.} =
+  if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, orig_termios.addr) == -1:
+    raise newException(NedError, "tcsetattr() failed")
+
+proc enableRawMode*() =
+  if stdin.getFileHandle.tcGetAttr(orig_termios.addr) == -1:
+    raise newException(NedError, "tcgetattr() failed")
+
+  addQuitProc(disableRawMode)
+
+  var raw = orig_termios
+
+  # Note: BRKINT, INPCK, ISTRIP, CS8 are set for a traditional reason
+
+  # Disable:
+  #   Ctrl-S
+  #   Ctrl-Q
+  # Fix:
+  #   let Ctrl-M to produce (13, '\r') not (10, '\n')
+  raw.c_iflag = raw.c_iflag and (not (BRKINT or ICRNL or INPCK or ISTRIP or IXON))
+
+  # Disable:
+  #   "\n" to "\r\n" translation
+  raw.c_oflag = raw.c_oflag and (not (OPOST))
+
+  # Set: char size to 8 bits per byte
+  raw.c_cflag = raw.c_cflag or CS8
+
+  # Disable:
+  #   echo
+  #   canonical mode
+  #   Ctrl-C
+  #   Ctrl-Z
+  #   Ctrl-V
+  raw.c_lflag = raw.c_lflag and (not (ECHO or ICANON or IEXTEN or ISIG))
+
+  # Set time out for preventing read() from blocking
+  raw.c_cc[VMIN] = 0.cuchar
+  raw.c_cc[VTIME] = 1.cuchar
+
+  if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, raw.addr) == -1:
+    raise newException(NedError, "tcsetattr() failed")
