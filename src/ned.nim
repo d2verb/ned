@@ -15,7 +15,7 @@ import algorithm
 
 const
   NEDVERSION = "0.0.1"
-  NEDTABSTOP = 8
+  NEDTABSTOP = 4
 
   HL_NUMBERS = (1 shl 0)
   HL_STRINGS = (1 shl 1)
@@ -201,10 +201,13 @@ proc nedReadKey(): int =
 
 proc nedPrompt(prompt: string, callback: proc(x: string, y: int) = nil): string =
   while true:
+    # Show prompt
     nedSetStatusMessage(prompt & result)
     nedRefreshScreen()
 
+    # Read key
     let c = nedReadKey()
+
     if c == nkDelKey.int or c == nkBackSpace.int:
       if result.len > 0:
         result.delete(result.len - 1, result.len - 1)
@@ -385,7 +388,7 @@ proc nedDrawStatusBar(ab: Stream) =
 
   let
     status = &"{filename} - {E.rows.len} lines {modified}"
-    rstatus = &"{filetype} | {E.cy + 1}/{E.rows.len}"
+    rstatus = &"{filetype} | {E.cy + 1}:{E.rx + 1}"
     ln = min(E.screencols, status.len)
 
   ab.write(status[0..<ln])
