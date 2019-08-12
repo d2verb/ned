@@ -139,7 +139,15 @@ proc nedProcessKeypress() =
       nedInsertNewline()
 
     of ctrlKey('q').int:
-      quit()
+      if not E.dirty:
+        quit()
+      else:
+        while true:
+          let res = nedPrompt("Content is modified. Do you really want to quit? [y/n]: ").strip()
+          if res == "y":
+            quit()
+          elif res == "n":
+            break
 
     of ctrlKey('w').int:
       nedSave()
@@ -425,6 +433,13 @@ proc nedSave() =
       E.rows[i].hled = false
 
     E.rows.nedUpdateSyntax(E.syntax, E.rowoff, min(E.rowoff + E.screenrows, E.rows.len - 1))
+  else:
+    while true:
+      let res = nedPrompt("Do you really want to save it? [y/n]: ").strip()
+      if res == "y":
+        break
+      elif res == "n":
+        return
 
   try:
     var f = open(E.filename, fmReadWrite)
