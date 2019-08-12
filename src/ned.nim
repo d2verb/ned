@@ -400,7 +400,7 @@ proc nedOpen(filename: string) =
     # Do nothing if we failed to open file
     discard
     
-  E.rows.nedUpdateSyntax(E.syntax, 0, min(E.screenrows * 2, E.rows.len - 1))
+  E.rows.nedUpdateSyntax(E.syntax, 0, min(E.screenrows, E.rows.len - 1))
 
 proc nedSave() =
   if E.filename == "":
