@@ -193,7 +193,7 @@ proc nedDrawWelcome(ab: Stream) =
 
   var
     welcomelen = min(welcome.len, E.screencols)
-    padding = (E.screencols - welcomelen) div 2
+    padding = (E.screencols - welcomelen) div 2 - 5
 
   if padding != 0:
     ab.write("~")
