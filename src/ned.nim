@@ -320,7 +320,7 @@ proc nedUpdateSyntax(rows: var seq[NedRow], syntax: var NedSyntax, start: int = 
     rows[i].nedUpdateSyntax(syntax)
 
 # *** editor operations ***
-proc nedInsertRow(s: string, at: int, update_syntax: bool = true) =
+proc nedInsertRow(s: string, at: int, update_syntax: bool = true, update_dirty = true) =
   if at < 0 or at > E.rows.len:
     return
 
@@ -330,7 +330,8 @@ proc nedInsertRow(s: string, at: int, update_syntax: bool = true) =
   if update_syntax:
     E.rows[at].nedUpdateSyntax(E.syntax)
 
-  E.dirty = true
+  if update_dirty:
+    E.dirty = true
 
 proc nedDelRow(at: int) =
   if at < 0 or at >= E.rows.len:
@@ -395,7 +396,7 @@ proc nedOpen(filename: string) =
       f.close()
 
     while f.endOfFile == false:
-      nedInsertRow(f.readLine(), E.rows.len, update_syntax=false)
+      nedInsertRow(f.readLine(), E.rows.len, update_syntax=false, update_dirty=false)
   except IOError:
     # Do nothing if we failed to open file
     discard
