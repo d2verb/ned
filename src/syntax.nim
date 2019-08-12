@@ -32,6 +32,17 @@ let
                           "float32|", "float64|", "float|", "bool|", "char|", "string|", "cstring|"],
               flags: HL_NUMBERS or HL_STRINGS,
               sline_comment_prefix: "#"),
+    NedSyntax(filetype: "python",
+              filematch: @[".py"],
+              keywords: @["and", "as", "assert", "break", "class", "continue", "def", "del",
+                          "from", "for", "finally", "False", "escept", "else", "elif",
+                          "global", "if", "import", "in", "is", "lambda", "None",
+                          "nonlocal", "not", "or", "pass", "raise", "return", "True",
+                          "try", "while", "with", "yield", "async",
+                          "int|", "long|", "float|", "complex|", "list|", "tuple|", "bytes|",
+                          "bytearray|", "set|", "dict|"],
+              flags: HL_NUMBERS or HL_STRINGS,
+              sline_comment_prefix: "#"),
   ]
 
 proc is_separator(c: char): bool =

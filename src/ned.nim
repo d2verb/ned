@@ -188,10 +188,6 @@ proc nedProcessKeypress() =
     else:
       c.char.nedInsertChar()
 
-proc nedClearScreen() {.noconv.} =
-  clearScreen()
-  resetCursorPos()
-
 proc nedDrawWelcome(ab: Stream) =
   let welcome = fmt"Ned editor -- version {NEDVERSION}"
 
@@ -484,7 +480,7 @@ proc nedInit() =
 
 proc main() =
   enableRawMode()
-  addQuitProc(nedClearScreen)
+  switchToAlternateScreen()
   nedInit()
 
   if paramCount() >= 1:

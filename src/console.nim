@@ -192,3 +192,14 @@ proc enableRawMode*() =
 
   if stdin.getFileHandle.tcSetAttr(TCSAFLUSH, raw.addr) == -1:
     raise newException(NedError, "tcsetattr() failed")
+
+proc switchFromAlternateScreen*() {.noconv.} =
+  let output = "\e[?1049l"
+  if stdout.writeChars(output, 0, output.len) != output.len:
+    raise ConsoleError.newException("switchFromAlternateScreen() failed")
+
+proc switchToAlternateScreen*() =
+  let output = "\e[?1049h\e[H"
+  if stdout.writeChars(output, 0, output.len) != output.len:
+    raise ConsoleError.newException("switchToAlternateScreen() failed")
+  addQuitProc(switchFromAlternateScreen)
