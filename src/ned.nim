@@ -362,7 +362,7 @@ proc nedInsertNewline() =
   else:
     let rowlen = E.rows[E.cy].raw.len
     nedInsertRow(E.rows[E.cy].raw[E.cx..<rowlen], E.cy + 1)
-    E.rows[E.cy].nedRowDelChar(rowlen - 1)
+    E.rows[E.cy].nedRowDelChars(E.cx, rowlen - 1)
     E.rows[E.cy].nedRowUpdate()
     E.rows[E.cy].nedUpdateSyntax(E.syntax)
   E.cy.inc
@@ -419,6 +419,11 @@ proc nedSave() =
       nedSetStatusMessage("Save aborted")
       return
     E.syntax = E.filename.nedSelectSyntax()
+    
+    # New syntax is loaded. We must re-highlight whole the content
+    for i in 0..<E.rows.len:
+      E.rows[i].hled = false
+
     E.rows.nedUpdateSyntax(E.syntax, E.rowoff, min(E.rowoff + E.screenrows, E.rows.len - 1))
 
   try:

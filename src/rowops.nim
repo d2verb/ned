@@ -46,3 +46,13 @@ proc nedRowDelChar*(row: var NedRow, at: int) =
     return
   row.raw.delete(at, at)
   row.nedRowUpdate()
+
+proc nedRowDelChars*(row: var NedRow, start: int, last: int) =
+  if start < 0 or start >= row.raw.len:
+    return
+  if last < 0 or last >= row.raw.len:
+    return
+  if start > last:
+    return
+  row.raw.delete(start, last)
+  row.nedRowUpdate()
