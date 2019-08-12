@@ -100,6 +100,9 @@ proc nedPrompt(prompt: string, callback: proc(x: string, y: int) = nil): string 
       nedSetStatusMessage("")
       if callback != nil: callback(result, c)
       return
+    elif c == '\0'.int:
+      # No input. Just ignore it
+      continue
     elif isCntrl(c.cint) == 0 and c < 128:
       result.add(c.char)
 
@@ -330,7 +333,7 @@ proc nedInsertRow(s: string, at: int, update_syntax: bool = true, update_dirty =
   if at < 0 or at > E.rows.len:
     return
 
-  E.rows.insert(@[NedRow(raw: s, render: "")], at)
+  E.rows.insert(@[NedRow(raw: s, render: "", hled: false)], at)
   E.rows[at].nedRowUpdate()
 
   if update_syntax:
@@ -359,7 +362,7 @@ proc nedInsertNewline() =
   else:
     let rowlen = E.rows[E.cy].raw.len
     nedInsertRow(E.rows[E.cy].raw[E.cx..<rowlen], E.cy + 1)
-    E.rows[E.cy].raw.delete(E.cx, rowlen - 1)
+    E.rows[E.cy].nedRowDelChar(rowlen - 1)
     E.rows[E.cy].nedRowUpdate()
     E.rows[E.cy].nedUpdateSyntax(E.syntax)
   E.cy.inc

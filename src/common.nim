@@ -27,6 +27,7 @@ type
     raw*: string
     render*: string
     hl*: seq[uint8]
+    hled*: bool # Is this row highlighted?
     
   # for ned.nim
   NedConfig* = object

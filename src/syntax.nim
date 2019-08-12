@@ -51,7 +51,11 @@ proc is_separator(c: char): bool =
   result = result or (c in ",.()+-/*=~%<>[];")
 
 proc nedUpdateSyntax*(row: var NedRow, syntax: var NedSyntax) =
+  if row.hled:
+    return
+
   row.hl = newSeqWith(row.render.len, nhNormal.uint8)
+  row.hled = true
 
   if syntax == nil:
     return

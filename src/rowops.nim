@@ -27,6 +27,8 @@ proc nedRowUpdate*(row: var NedRow) =
         row.render.add(' ')
     else:
       row.render.add(row.raw[j])
+  # Row is changed. We must re-highlight it.
+  row.hled = false
 
 proc nedRowInsertChar*(row: var NedRow, at: int, c: char) =
   var nat = at
