@@ -3,6 +3,7 @@ import sequtils
 import algorithm
 
 import common
+import console
 
 const
   HL_NUMBERS* = (1 shl 0)
@@ -127,12 +128,12 @@ proc nedUpdateSyntax*(row: var NedRow, syntax: var NedSyntax) =
 
 proc nedSyntaxToColor*(hl: uint8): int =
   case hl:
-    of nhComment.uint8: return 36
-    of nhKeyword1.uint8: return 33
-    of nhKeyword2.uint8: return 32
-    of nhString.uint8: return 35
-    of nhNumber.uint8: return 31
-    of nhMatch.uint8: return 34
+    of nhComment.uint8: return ccFgCyan.int
+    of nhKeyword1.uint8: return ccFgYellow.int
+    of nhKeyword2.uint8: return ccFgGreen.int
+    of nhString.uint8: return ccFgMagenta.int
+    of nhNumber.uint8: return ccFgRed.int
+    of nhMatch.uint8: return ccFgBlue.int
     else: return 37
 
 proc nedSelectSyntax*(filename: string): NedSyntax =

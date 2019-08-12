@@ -20,6 +20,24 @@ type
     xpixel: cushort
     ypixel: cushort
 
+  ConsoleColor* = enum
+    ccFgBlack = 30
+    ccFgRed = 31
+    ccFgGreen = 32
+    ccFgYellow = 33
+    ccFgBlue = 34
+    ccFgMagenta = 35
+    ccFgCyan = 36
+    ccFgWhite = 37
+    ccBgBlack = 40
+    ccBgRed = 41
+    ccBgGreen = 42
+    ccBgYellow = 43
+    ccBgBlue = 44
+    ccBgMagenta = 45
+    ccBgCyan = 46
+    ccBgWhite = 47
+
 proc clearScreen*() =
   let output = &"{ESC}[2J"
   if stdout.writeChars(output, 0, output.len) != output.len:
