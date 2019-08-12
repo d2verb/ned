@@ -220,9 +220,19 @@ proc nedScroll() =
 
   E.rows.nedUpdateSyntax(E.syntax, E.rowoff, min(E.rowoff + E.screenrows, E.rows.len - 1))
 
+proc nedBuildLineno(lineno: int): string =
+  let lineno_len = max(3, (&"{E.rowoff + E.screenrows}").len)
+  result = &"{lineno}"
+  result = " ".repeat(max(0, lineno_len - result.len)) & result & "| "
+
 proc nedDrawRows(ab: Stream) =
   for y in 0..<E.screenrows:
     let filerow = y + E.rowoff
+
+    ab.setColor(ccFgCyan.int)
+    ab.write(nedBuildLineno(filerow + 1))
+    ab.setForegroundDefaultColor()
+
     if filerow >= E.rows.len:
       if E.rows.len == 0 and y == E.screenrows div 3:
         ab.nedDrawWelcome()
@@ -299,7 +309,7 @@ proc nedRefreshScreen() =
   ab.nedDrawStatusBar()
   ab.nedDrawMessageBar()
 
-  ab.setCursorPos(E.rx - E.coloff + 1, E.cy - E.rowoff + 1)
+  ab.setCursorPos(E.rx - E.coloff + 1 + nedBuildLineno(0).len, E.cy - E.rowoff + 1)
   ab.showCursor()
 
   ab.setPosition(0)
