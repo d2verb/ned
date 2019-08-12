@@ -45,9 +45,7 @@ proc nedUpdateSyntax*(row: var NedRow, syntax: var NedSyntax) =
   if syntax == nil:
     return
 
-  let
-    scs = syntax.sline_comment_prefix
-    keywords = syntax.keywords
+  let scs = syntax.sline_comment_prefix
 
   var
     i = 0
@@ -96,7 +94,7 @@ proc nedUpdateSyntax*(row: var NedRow, syntax: var NedSyntax) =
 
     if prev_is_sep:
       var kwfound = false
-      for keyword in keywords:
+      for keyword in syntax.keywords:
         var
           kwlen = keyword.len
           kwcolor = nhKeyword1

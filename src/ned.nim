@@ -222,6 +222,8 @@ proc nedScroll() =
   if E.rx >= E.coloff + E.screencols:
     E.coloff = E.rx - E.screencols + 1
 
+  E.rows.nedUpdateSyntax(E.syntax, E.rowoff, min(E.rowoff + E.screenrows, E.rows.len - 1))
+
 proc nedDrawRows(ab: Stream) =
   for y in 0..<E.screenrows:
     let filerow = y + E.rowoff
@@ -311,18 +313,22 @@ proc nedSetStatusMessage(msg: string) =
   E.statusmsg = msg
   E.statusmsg_time = getTime().toUnix()
 
-proc nedUpdateSyntax(rows: var seq[NedRow], syntax: var NedSyntax) =
-  for i in 0..<E.rows.len:
+proc nedUpdateSyntax(rows: var seq[NedRow], syntax: var NedSyntax, start: int = 0, last: int = -1) =
+  var actual_last = if last == -1: E.rows.len - 1 else: last
+
+  for i in start..actual_last:
     rows[i].nedUpdateSyntax(syntax)
 
 # *** editor operations ***
-proc nedInsertRow(s: string, at: int) =
+proc nedInsertRow(s: string, at: int, update_syntax: bool = true) =
   if at < 0 or at > E.rows.len:
     return
 
   E.rows.insert(@[NedRow(raw: s, render: "")], at)
   E.rows[at].nedRowUpdate()
-  E.rows[at].nedUpdateSyntax(E.syntax)
+
+  if update_syntax:
+    E.rows[at].nedUpdateSyntax(E.syntax)
 
   E.dirty = true
 
@@ -389,12 +395,12 @@ proc nedOpen(filename: string) =
       f.close()
 
     while f.endOfFile == false:
-      nedInsertRow(f.readLine(), E.rows.len)
+      nedInsertRow(f.readLine(), E.rows.len, update_syntax=false)
   except IOError:
     # Do nothing if we failed to open file
     discard
     
-  E.rows.nedUpdateSyntax(E.syntax)
+  E.rows.nedUpdateSyntax(E.syntax, 0, min(E.screenrows * 2, E.rows.len - 1))
 
 proc nedSave() =
   if E.filename == "":
@@ -403,7 +409,7 @@ proc nedSave() =
       nedSetStatusMessage("Save aborted")
       return
     E.syntax = E.filename.nedSelectSyntax()
-    E.rows.nedUpdateSyntax(E.syntax)
+    E.rows.nedUpdateSyntax(E.syntax, E.rowoff, min(E.rowoff + E.screenrows, E.rows.len - 1))
 
   try:
     var f = open(E.filename, fmReadWrite)
